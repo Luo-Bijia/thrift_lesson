@@ -2,10 +2,13 @@
 // You should copy it to another filename to avoid overwriting it.
 
 #include "match_server/Match.h"
+#include "save_client/Save.h"
 #include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/server/TSimpleServer.h>
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TBufferTransports.h>
+#include <thrift/transport/TTransportUtils.h>		
+#include <thrift/transport/TSocket.h>
 
 #include <iostream>
 #include <thread>
@@ -20,7 +23,8 @@ using namespace ::apache::thrift::protocol;
 using namespace ::apache::thrift::transport;
 using namespace ::apache::thrift::server;
 
-using namespace  ::match_service;
+using namespace ::match_service;
+using namespace ::save_service;
 using namespace std;
 
 struct Task{        // 对每个user要执行的操作
@@ -35,63 +39,79 @@ struct MessageQueue{        // queue+锁的机制实现消息队列
 }message_queue;     // 全局变量MQ
 
 class Pool{         // 匹配池
-public:
-    void save_result(int a, int b){
-        printf("Match result: %d %d\n", a, b);
-    }
-    void match(){
-        while(users.size() > 1){        // if至少有一对
-            auto u1 = users[0], u2 = users[1];
-            users.erase(users.begin());
-            users.erase(users.begin());
-            save_result(u1.id, u2.id);
-        }
-    }
-    void add(User user){
-        users.push_back(user);
-    }
-    void remove(User user){
-        for(uint32_t i = 0;i < users.size();i ++)
-            if(users[i].id == user.id){
-                users.erase(users.begin() + i);
-                break;
-            }
-        // TODO: 异常处理
-    }
+    public:
+        void save_result(int a, int b){
+            printf("Match result: %d %d\n", a, b);
+            
+            // do-save: 对比着cpp-client端模板需要加的
+            std::shared_ptr<TTransport> socket(new TSocket("123.57.67.128", 9090));         // 建立的连接是到远程服务器上，这里填入myserver的ip地址
+            std::shared_ptr<TTransport> transport(new TBufferedTransport(socket));
+            std::shared_ptr<TProtocol> protocol(new TBinaryProtocol(transport));
+            SaveClient client(protocol);
 
-private:
-    vector<User> users;
+            try {
+                transport->open();
+
+                client.save_data("acs_11972", "150c3351", a, b);
+
+                transport->close();
+            } catch (TException& tx) {
+                cout << "ERROR: " << tx.what() << '\n';
+            }
+        }
+        void match(){
+            while(users.size() > 1){        // if至少有一对
+                auto u1 = users[0], u2 = users[1];
+                users.erase(users.begin());
+                users.erase(users.begin());
+                save_result(u1.id, u2.id);
+            }
+        }
+        void add(User user){
+            users.push_back(user);
+        }
+        void remove(User user){
+            for(uint32_t i = 0;i < users.size();i ++)
+                if(users[i].id == user.id){
+                    users.erase(users.begin() + i);
+                    break;
+                }
+            // TODO: 异常处理
+        }
+
+    private:
+        vector<User> users;
 };
 Pool pool;
 
 class MatchHandler : virtual public MatchIf {
- public:
-  MatchHandler() {
-    // Your initialization goes here
-  }
+    public:
+        MatchHandler() {
+            // Your initialization goes here
+        }
 
-  int32_t add_user(const User& user, const std::string& info) {     // 生产者，remove同理
-    // Your implementation goes here
-    printf("add_user\n");
+        int32_t add_user(const User& user, const std::string& info) {     // 生产者，remove同理
+            // Your implementation goes here
+            printf("add_user\n");
 
-    // 加锁操作，在函数执行完后局部变量lck析构时自动完成解锁操作
-    unique_lock<mutex> lck(message_queue.m);
-    message_queue.q.push({user, "add"});    // 线程向MQ发送task需互斥地访问q
-    message_queue.cv.notify_one();      // V(full)
+            // 加锁操作，在函数执行完后局部变量lck析构时自动完成解锁操作
+            unique_lock<mutex> lck(message_queue.m);
+            message_queue.q.push({user, "add"});    // 线程向MQ发送task需互斥地访问q
+            message_queue.cv.notify_one();      // V(full)
 
-    return 0;
-  }
+            return 0;
+        }
 
-  int32_t remove_user(const User& user, const std::string& info) {
-    // Your implementation goes here
-    printf("remove_user\n");
+        int32_t remove_user(const User& user, const std::string& info) {
+            // Your implementation goes here
+            printf("remove_user\n");
 
-    unique_lock<mutex> lck(message_queue.m);
-    message_queue.q.push({user, "remove"});
-    message_queue.cv.notify_one();
+            unique_lock<mutex> lck(message_queue.m);
+            message_queue.q.push({user, "remove"});
+            message_queue.cv.notify_one();
 
-    return 0;
-  }
+            return 0;
+        }
 
 };
 
@@ -118,19 +138,19 @@ void consume_task(){        // 消费者
 }
 
 int main(int argc, char **argv) {
-  int port = 9090;
-  ::std::shared_ptr<MatchHandler> handler(new MatchHandler());
-  ::std::shared_ptr<TProcessor> processor(new MatchProcessor(handler));
-  ::std::shared_ptr<TServerTransport> serverTransport(new TServerSocket(port));
-  ::std::shared_ptr<TTransportFactory> transportFactory(new TBufferedTransportFactory());
-  ::std::shared_ptr<TProtocolFactory> protocolFactory(new TBinaryProtocolFactory());
+    int port = 9090;
+    ::std::shared_ptr<MatchHandler> handler(new MatchHandler());
+    ::std::shared_ptr<TProcessor> processor(new MatchProcessor(handler));
+    ::std::shared_ptr<TServerTransport> serverTransport(new TServerSocket(port));
+    ::std::shared_ptr<TTransportFactory> transportFactory(new TBufferedTransportFactory());
+    ::std::shared_ptr<TProtocolFactory> protocolFactory(new TBinaryProtocolFactory());
 
-  TSimpleServer server(processor, serverTransport, transportFactory, protocolFactory);
-  std::cout << "Start Match Server ..." << std::endl;
-  // 负责收集用户进行匹配的线程，传函数指针
-  thread matching_thread(consume_task);
+    TSimpleServer server(processor, serverTransport, transportFactory, protocolFactory);
+    std::cout << "Start Match Server ..." << std::endl;
+    // 负责收集用户进行匹配的线程，传函数指针
+    thread matching_thread(consume_task);
 
-  server.serve();
-  return 0;
+    server.serve();
+    return 0;
 }
 
