@@ -17,6 +17,7 @@
 #include <queue>
 #include <vector>
 #include <string>
+#include <unistd.h>
 
 using namespace ::apache::thrift;
 using namespace ::apache::thrift::protocol;
@@ -60,11 +61,22 @@ class Pool{         // 匹配池
             }
         }
         void match(){
-            while(users.size() > 1){        // if至少有一对
-                auto u1 = users[0], u2 = users[1];
-                users.erase(users.begin());
-                users.erase(users.begin());
-                save_result(u1.id, u2.id);
+            while(users.size() > 1){        
+                sort(users.begin(), users.end(), [&](User& a, User b){
+                        return a.score <= b.score;
+                        });
+                bool flag = true;
+                for(uint32_t i = 1;i < users.size();i ++){
+                    auto u1 = users[i - 1], u2 = users[i];
+                    if(u2.score - u1.score <= 50){
+                        users.erase(users.begin() + i - 1, users.begin() + i + 1);
+                        save_result(u1.id, u2.id);
+                        flag = false;
+                        break;
+                    }
+                }
+                if(flag)       // 防止一直没匹配到陷入死循环
+                    break;
             }
         }
         void add(User user){
@@ -120,7 +132,10 @@ void consume_task(){        // 消费者
         unique_lock<mutex> lck(message_queue.m);    // 与生产者互斥地访问q
         if(message_queue.q.empty()){
             // 线程主动释放锁并阻塞住，这样便让出锁一般得等到生产者的notify才唤醒 —— 解决忙等待
-            message_queue.cv.wait(lck);     // P(full)
+            // message_queue.cv.wait(lck);     // P(full)
+            lck.unlock();
+            pool.match();       // 虽然要处理的消息为空，但users不一定为空，保障至少在1s内有一次匹配
+            sleep(1);       // 缓解忙等待
         }
         else{
             auto task = message_queue.q.front();
