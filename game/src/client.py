@@ -6,8 +6,9 @@ from thrift.transport import TSocket
 from thrift.transport import TTransport
 from thrift.protocol import TBinaryProtocol
 
+from sys import stdin
 
-def main():
+def operate(op, user_id, username, score):
     # Make socket
     transport = TSocket.TSocket('localhost', 9090)
 
@@ -22,12 +23,19 @@ def main():
 
     # Connect!
     transport.open()
-    user = User(1, "lbj", 1500)
-    client.add_user(user, "")
+    user = User(user_id, username, score)
+    if op == 'add':
+        client.add_user(user, "")
+    elif op == 'remove':
+        client.remove_user(user, "")
 
     # Close!
     transport.close()
 
+def main():
+    for line in stdin:			# 每次循环读取一行（直到遇到\n后阻塞等待下一次输入），直到遇到EOF（文件结束，Ctrl+D）才会结束
+        op, user_id, username, score = line.split(' ')
+        operate(op, int(user_id), username, int(score))
 
 if __name__ == "__main__":
     main()
