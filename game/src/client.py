@@ -35,7 +35,7 @@ def operate(op, user_id, username, score):
 def main():
     for line in stdin:			# 每次循环读取一行（直到遇到\n后阻塞等待下一次输入），直到遇到EOF（文件结束，Ctrl+D）才会结束
         op, user_id, username, score = line.split(' ')
-        operate(op, int(user_id), username, int(score))
+        operate(op, int(user_id), username, int(score))     # 每次读取到新参数时都将进行一次Socket连接
 
 if __name__ == "__main__":
     main()
