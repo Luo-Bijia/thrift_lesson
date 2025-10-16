@@ -64,7 +64,7 @@ class Pool{         // 匹配池
                 cout << "ERROR: " << tx.what() << '\n';
             }
         }
-        bool check_match(int i, int j){
+        bool check_match(uint32_t i, uint32_t j){
             int delta_s = abs(users[i].score - users[j].score);
             return (delta_s <= wt[i] * 50) && (delta_s <= wt[j] * 50);
         }
@@ -77,11 +77,12 @@ class Pool{         // 匹配池
                 for(uint32_t i = 0;i < wt.size() - 1;i ++){
                     for(uint32_t j = i + 1;j < wt.size();j ++){
                         if(check_match(i, j)){
+                            save_result(users[i].id, users[j].id);
+                            
                             users.erase(users.begin() + j);
                             users.erase(users.begin() + i);
                             wt.erase(wt.begin() + j);
                             wt.erase(wt.begin() + i);
-                            save_result(users[i].id, users[j].id);
                             flag = false;
                             break;
                         }
@@ -148,11 +149,13 @@ class MatchCloneFactory : virtual public MatchIfFactory {
         MatchIf* getHandler(const ::apache::thrift::TConnectionInfo& connInfo) override
         {
             std::shared_ptr<TSocket> sock = std::dynamic_pointer_cast<TSocket>(connInfo.transport);
+            /*
             cout << "Incoming connection\n";
             cout << "\tSocketInfo: "  << sock->getSocketInfo() << "\n";
             cout << "\tPeerHost: "    << sock->getPeerHost() << "\n";
             cout << "\tPeerAddress: " << sock->getPeerAddress() << "\n";
             cout << "\tPeerPort: "    << sock->getPeerPort() << "\n";
+            */
             return new MatchHandler;
         }
         void releaseHandler(MatchIf* handler) override {
